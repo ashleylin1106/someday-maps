@@ -54,9 +54,6 @@ interface Group {
   places: Place[];
   max: number;
 }
-type CountryRow =
-  | { kind: 'city'; key: string; label: string; places: Place[] }
-  | { kind: 'place'; key: string; place: Place };
 type RouteRow =
   | { kind: 'trip'; key: string; label: string; count: number; expanded: boolean; places: Place[] }
   | { kind: 'place'; key: string; place: Place };
@@ -83,6 +80,7 @@ export function HomeScreen() {
   const [view, setView] = useState<ViewMode>('list');
   const [navContinent, setNavContinent] = useState<string | null>(null);
   const [navCountry, setNavCountry] = useState<string | null>(null);
+  const [navCity, setNavCity] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [openTrips, setOpenTrips] = useState<Set<string>>(new Set());
@@ -94,29 +92,46 @@ export function HomeScreen() {
   const [selected, setSelected] = useState<Place | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  // IG-style collapsing header: scrolling down hides the whole top bar
-  // (title / toggle / search / filters); a small upward scroll brings it back.
+  // IG-style collapsing header: scrolling down snaps the whole top bar away,
+  // any upward scroll snaps it back. Direction-based (not offset-based) so
+  // iOS rubber-band bouncing can't leave it stuck halfway.
   const [headerHeight, setHeaderHeight] = useState(300);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerTranslate = useMemo(() => {
-    const clamped = Animated.diffClamp(scrollY, 0, headerHeight);
-    return clamped.interpolate({
-      inputRange: [0, headerHeight],
-      outputRange: [0, -headerHeight],
-      extrapolate: 'clamp',
-    });
-  }, [scrollY, headerHeight]);
-  const onListScroll = useMemo(
+  const headerShown = useRef(new Animated.Value(1)).current; // 1 = shown, 0 = hidden
+  const headerShownState = useRef(true);
+  const lastScrollY = useRef(0);
+  const setHeaderVisible = (show: boolean) => {
+    if (headerShownState.current === show) return;
+    headerShownState.current = show;
+    Animated.timing(headerShown, {
+      toValue: show ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  };
+  const onListScroll = (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const dy = y - lastScrollY.current;
+    lastScrollY.current = y;
+    if (y <= 20) {
+      setHeaderVisible(true); // at (or bouncing past) the top → always show
+      return;
+    }
+    if (dy > 6) setHeaderVisible(false);
+    else if (dy < -6) setHeaderVisible(true);
+  };
+  const headerTranslate = useMemo(
     () =>
-      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-        useNativeDriver: true,
+      headerShown.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-headerHeight, 0],
       }),
-    [scrollY]
+    [headerShown, headerHeight]
   );
   // Reveal the header again whenever the context changes.
   useEffect(() => {
-    scrollY.setValue(0);
-  }, [view, navContinent, navCountry, query, searchFocused, scrollY]);
+    lastScrollY.current = 0;
+    setHeaderVisible(true);
+  }, [view, navContinent, navCountry, navCity, query, searchFocused]);
 
   // Repair stacked coordinates: some imports gave several places the SAME
   // approximate coords (city center), piling their pins on one spot. For any
@@ -206,7 +221,8 @@ export function HomeScreen() {
       .sort(byRecency);
   }, [scattered, navContinent]);
 
-  const countryRows = useMemo<CountryRow[]>(() => {
+  // City cards inside a country (so countries with many cities stay browsable).
+  const cityGroups = useMemo<Group[]>(() => {
     if (!navCountry) return [];
     const m = new Map<string, Place[]>();
     for (const p of scattered) {
@@ -215,20 +231,20 @@ export function HomeScreen() {
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(p);
     }
-    const cities: Group[] = Array.from(m.entries())
-      .map(([name, ps]) => ({
-        name,
-        places: [...ps].sort((a, b) => b.updatedAt - a.updatedAt),
-        max: maxUpd(ps),
-      }))
+    return Array.from(m.entries())
+      .map(([name, ps]) => ({ name, places: ps, max: maxUpd(ps) }))
       .sort(byRecency);
-    const out: CountryRow[] = [];
-    for (const c of cities) {
-      out.push({ kind: 'city', key: `c:${c.name}`, label: c.name, places: c.places });
-      for (const p of c.places) out.push({ kind: 'place', key: `p:${p.id}`, place: p });
-    }
-    return out;
   }, [scattered, navCountry]);
+
+  // The places of the opened city, most recently edited first.
+  const cityPlaces = useMemo<Place[]>(() => {
+    if (!navCountry || !navCity) return [];
+    return scattered
+      .filter(
+        (p) => (p.country || 'Uncategorized') === navCountry && (p.city || 'Other') === navCity
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [scattered, navCountry, navCity]);
 
   // --- routes rows ---
   const routeRows = useMemo<RouteRow[]>(() => {
@@ -326,7 +342,8 @@ export function HomeScreen() {
     setFormOpen(true);
   };
   const goBack = () => {
-    if (navCountry) setNavCountry(null);
+    if (navCity) setNavCity(null);
+    else if (navCountry) setNavCountry(null);
     else setNavContinent(null);
   };
 
@@ -388,22 +405,6 @@ export function HomeScreen() {
     );
   };
 
-  const renderCountryRow = ({ item }: { item: CountryRow }) => {
-    if (item.kind === 'city') {
-      const sel = selectMode && groupSelected(item.places);
-      return (
-        <Pressable
-          style={[styles.cityHeaderWrap, sel && styles.cityHeaderSelected]}
-          onPress={() => selectMode && toggleGroup(item.places)}
-          onLongPress={() => (selectMode ? toggleGroup(item.places) : startSelectGroup(item.places))}
-          delayLongPress={400}
-        >
-          <Text style={styles.cityHeader}>{item.label}</Text>
-        </Pressable>
-      );
-    }
-    return <View style={styles.placeWrap}>{placeCard(item.place)}</View>;
-  };
 
   const renderRouteRow = ({ item }: { item: RouteRow }) => {
     if (item.kind === 'trip') {
@@ -479,13 +480,27 @@ export function HomeScreen() {
         />
       );
     }
+    if (navCity) {
+      return (
+        <Animated.FlatList
+          {...scrollProps}
+          data={cityPlaces}
+          keyExtractor={(p) => p.id}
+          renderItem={({ item }) => <View style={styles.placeWrap}>{placeCard(item)}</View>}
+          contentContainerStyle={listPad}
+        />
+      );
+    }
     if (navCountry) {
       return (
         <Animated.FlatList
           {...scrollProps}
-          data={countryRows}
-          keyExtractor={(r) => r.key}
-          renderItem={renderCountryRow}
+          data={cityGroups}
+          key="cities"
+          keyExtractor={(g) => g.name}
+          numColumns={2}
+          columnWrapperStyle={styles.gridRow}
+          renderItem={({ item }) => renderGridCard(item, () => setNavCity(item.name), false)}
           contentContainerStyle={listPad}
         />
       );
@@ -691,8 +706,12 @@ export function HomeScreen() {
         <Pressable style={styles.backRow} onPress={goBack}>
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backText}>
-            {navCountry ? `${navContinent}  ›  ` : ''}
-            <Text style={styles.backCurrent}>{navCountry ?? navContinent}</Text>
+            {navCity
+              ? `${navContinent}  ›  ${navCountry}  ›  `
+              : navCountry
+                ? `${navContinent}  ›  `
+                : ''}
+            <Text style={styles.backCurrent}>{navCity ?? navCountry ?? navContinent}</Text>
           </Text>
         </Pressable>
       )}
@@ -886,22 +905,6 @@ const styles = StyleSheet.create({
   gridCardSelected: { borderWidth: 2, borderColor: colors.accent },
   gridName: { fontSize: 21, fontWeight: '700', color: colors.text },
   gridCount: { fontSize: 14, color: colors.subtext },
-  cityHeaderWrap: {
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    alignSelf: 'flex-start',
-  },
-  cityHeaderSelected: { borderColor: colors.accent },
-  cityHeader: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-  },
   placeWrap: { paddingVertical: spacing.xs },
   searchItem: { paddingVertical: spacing.xs },
   tripRow: {

@@ -11,7 +11,7 @@ const BACKEND_PORT = 8787;
 // Once the server is deployed to the cloud (Render), put its URL here —
 // then the app works anywhere, for anyone, without your Mac running.
 // e.g. 'https://someday-maps.onrender.com'
-const PROD_BACKEND_URL = '';
+const PROD_BACKEND_URL = 'https://someday-maps.onrender.com';
 
 // If auto-detection ever fails, hard-code it here, e.g.
 // 'http://192.168.0.95:8787'
