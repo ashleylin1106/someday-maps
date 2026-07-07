@@ -1,0 +1,18 @@
+{
+  "name": "bucketlist-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local backend that reads a screenshot with Claude and extracts places",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@google/genai": "^2.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "sharp": "^0.35.3"
+  }
+}
