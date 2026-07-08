@@ -3,7 +3,9 @@
     "name": "Someday Maps",
     "slug": "bucketlist",
     "version": "1.0.0",
-    "runtimeVersion": { "policy": "sdkVersion" },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,6 +23,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "10d01830-0e17-4b39-a525-9249a6409ad6"
+      }
+    },
+    "owner": "ashleyqup6q6",
+    "updates": {
+      "url": "https://u.expo.dev/10d01830-0e17-4b39-a525-9249a6409ad6"
     }
   }
 }
