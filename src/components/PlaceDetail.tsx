@@ -24,6 +24,8 @@ import {
 import { mapsUrl } from '../maps';
 import { useStore } from '../store';
 import { geocode } from '../geocode';
+import { extractPlacesFromText } from '../api';
+import { ActivityIndicator } from 'react-native';
 import {
   distanceMeters,
   travelMinutes,
@@ -49,7 +51,8 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
   const [viewSource, setViewSource] = useState<string | null>(null);
   const [imgBroken, setImgBroken] = useState(false);
   const [mode, setMode] = useState<TravelMode>('walk');
-  const { places, setCoords } = useStore();
+  const [refreshing, setRefreshing] = useState(false);
+  const { places, setCoords, updatePlace } = useStore();
 
   // Read the freshest copy from the store (so a background geocode shows up).
   const place = useMemo(
@@ -102,6 +105,41 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
         : [];
 
   const openMaps = () => Linking.openURL(mapsUrl(place)).catch(() => {});
+
+  // Re-run the AI on this one place to fill in newer fields (rating, precise
+  // category/type, notes, address, coords) for places saved before those
+  // existed. Keeps your name / status / sources / route position.
+  const refreshDetails = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const q = [place.name, place.city, place.country].filter(Boolean).join(', ');
+      const { places: found } = await extractPlacesFromText(q);
+      const r = found[0];
+      if (!r) {
+        Alert.alert('Nothing found', "Couldn't find fresh details for this place.");
+        return;
+      }
+      updatePlace(place.id, {
+        ...place,
+        category: r.category || place.category,
+        type: r.type || place.type,
+        note: r.note || place.note,
+        address: r.address || place.address,
+        city: place.city || r.city,
+        country: place.country || r.country,
+        lat: r.lat ?? place.lat,
+        lng: r.lng ?? place.lng,
+        rating: r.rating ?? place.rating,
+        ratingCount: r.ratingCount ?? place.ratingCount,
+      });
+      Alert.alert('Updated', `Refreshed details for ${place.name}.`);
+    } catch (e: any) {
+      Alert.alert('Refresh failed', e?.message ?? 'Try again later.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const confirmDelete = () => {
     Alert.alert('Delete place', `Delete "${place.name}"?`, [
@@ -187,6 +225,19 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
               </Text>
             </Pressable>
           ))}
+
+          {/* Backfill older places with newer AI fields (rating / category / notes) */}
+          <Pressable
+            style={[styles.linkBtn, refreshing && { opacity: 0.6 }]}
+            onPress={refreshDetails}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <ActivityIndicator color={colors.accent} />
+            ) : (
+              <Text style={styles.linkBtnText}>🔄  Refresh details with AI</Text>
+            )}
+          </Pressable>
 
           {/* Mini-map: this place + your other saved places around it */}
           {hasCoords && (

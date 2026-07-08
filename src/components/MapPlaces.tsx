@@ -145,6 +145,7 @@ export function MapPlaces({ places, routePlaces, onSelect }: Props) {
               key={`r-${p.id}`}
               place={p}
               ringColor={colors.matcha}
+              stopNumber={p.order || undefined}
               description={`🧭 ${p.trip}${p.order ? ` · stop ${p.order}` : ''}`}
               onCalloutPress={() => onSelect(p)}
             />

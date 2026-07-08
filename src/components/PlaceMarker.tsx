@@ -13,10 +13,19 @@ interface Props {
   title?: string;
   description?: string;
   highlight?: boolean;
+  stopNumber?: number; // route order badge (1,2,3…) shown on the marker
   onCalloutPress?: () => void;
 }
 
-export function PlaceMarker({ place, ringColor, title, description, highlight, onCalloutPress }: Props) {
+export function PlaceMarker({
+  place,
+  ringColor,
+  title,
+  description,
+  highlight,
+  stopNumber,
+  onCalloutPress,
+}: Props) {
   if (place.lat == null || place.lng == null) return null;
   return (
     <Marker
@@ -28,6 +37,11 @@ export function PlaceMarker({ place, ringColor, title, description, highlight, o
     >
       <View style={[styles.bubble, { borderColor: ringColor }, highlight && styles.big]}>
         <Text style={[styles.emoji, highlight && styles.emojiBig]}>{TYPE_EMOJI[place.type]}</Text>
+        {stopNumber != null && (
+          <View style={[styles.stopBadge, { backgroundColor: ringColor }]}>
+            <Text style={styles.stopText}>{stopNumber}</Text>
+          </View>
+        )}
       </View>
     </Marker>
   );
@@ -51,4 +65,18 @@ const styles = StyleSheet.create({
   big: { width: 44, height: 44, borderRadius: 22, borderWidth: 3 },
   emoji: { fontSize: 16, lineHeight: 20 },
   emojiBig: { fontSize: 22, lineHeight: 26 },
+  stopBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  stopText: { color: '#fff', fontSize: 11, fontWeight: '800', lineHeight: 14 },
 });
