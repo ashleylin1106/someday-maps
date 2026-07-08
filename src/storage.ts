@@ -16,6 +16,12 @@ export async function loadPlaces(): Promise<Place[]> {
       ...p,
       sources: Array.isArray(p.sources) ? p.sources : p.sourceUrl ? [p.sourceUrl] : [],
       sourceImage: typeof p.sourceImage === 'string' ? p.sourceImage : '',
+      sourceImages:
+        p.sourceImages && typeof p.sourceImages === 'object'
+          ? p.sourceImages
+          : p.sourceImage && p.sourceUrl
+            ? { [p.sourceUrl]: p.sourceImage }
+            : {},
     })) as Place[];
   } catch (e) {
     console.warn('Failed to read local data', e);

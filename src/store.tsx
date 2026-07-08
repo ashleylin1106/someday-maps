@@ -23,7 +23,7 @@ interface StoreValue {
   deletePlace: (id: string) => void;
   deletePlaces: (ids: string[]) => void;
   setCoords: (id: string, lat: number, lng: number) => void;
-  addSource: (id: string, url: string) => void;
+  addSource: (id: string, url: string, image?: string) => void;
   userId: string | null; // signed-in Supabase user (null = local only)
 }
 
@@ -178,17 +178,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, lat, lng } : p)));
   }, []);
 
-  // Append another source link to an existing place (re-saved from a new post).
-  const addSource = useCallback((id: string, url: string) => {
+  // Append another source link (and its thumbnail) to an existing place.
+  const addSource = useCallback((id: string, url: string, image?: string) => {
     setPlaces((prev) =>
       prev.map((p) => {
         if (p.id !== id) return p;
         const cur = sourcesOf(p);
-        if (cur.includes(url)) return p;
+        const imgs = { ...(p.sourceImages || {}) };
+        if (image) imgs[url] = image;
+        if (cur.includes(url) && !image) return p;
         return {
           ...p,
-          sources: [...cur, url],
+          sources: cur.includes(url) ? cur : [...cur, url],
+          sourceImages: imgs,
           sourceUrl: p.sourceUrl || url,
+          sourceImage: p.sourceImage || image || '',
           updatedAt: Date.now(),
         };
       })

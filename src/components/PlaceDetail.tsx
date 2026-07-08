@@ -24,8 +24,6 @@ import {
 import { mapsUrl } from '../maps';
 import { useStore } from '../store';
 import { geocode } from '../geocode';
-import { extractPlacesFromText } from '../api';
-import { ActivityIndicator } from 'react-native';
 import {
   distanceMeters,
   travelMinutes,
@@ -49,10 +47,8 @@ interface Props {
 
 export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDelete, onOpenPlace }: Props) {
   const [viewSource, setViewSource] = useState<string | null>(null);
-  const [imgBroken, setImgBroken] = useState(false);
   const [mode, setMode] = useState<TravelMode>('walk');
-  const [refreshing, setRefreshing] = useState(false);
-  const { places, setCoords, updatePlace } = useStore();
+  const { places, setCoords } = useStore();
 
   // Read the freshest copy from the store (so a background geocode shows up).
   const place = useMemo(
@@ -105,41 +101,6 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
         : [];
 
   const openMaps = () => Linking.openURL(mapsUrl(place)).catch(() => {});
-
-  // Re-run the AI on this one place to fill in newer fields (rating, precise
-  // category/type, notes, address, coords) for places saved before those
-  // existed. Keeps your name / status / sources / route position.
-  const refreshDetails = async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      const q = [place.name, place.city, place.country].filter(Boolean).join(', ');
-      const { places: found } = await extractPlacesFromText(q);
-      const r = found[0];
-      if (!r) {
-        Alert.alert('Nothing found', "Couldn't find fresh details for this place.");
-        return;
-      }
-      updatePlace(place.id, {
-        ...place,
-        category: r.category || place.category,
-        type: r.type || place.type,
-        note: r.note || place.note,
-        address: r.address || place.address,
-        city: place.city || r.city,
-        country: place.country || r.country,
-        lat: r.lat ?? place.lat,
-        lng: r.lng ?? place.lng,
-        rating: r.rating ?? place.rating,
-        ratingCount: r.ratingCount ?? place.ratingCount,
-      });
-      Alert.alert('Updated', `Refreshed details for ${place.name}.`);
-    } catch (e: any) {
-      Alert.alert('Refresh failed', e?.message ?? 'Try again later.');
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const confirmDelete = () => {
     Alert.alert('Delete place', `Delete "${place.name}"?`, [
@@ -203,41 +164,41 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
             <Text style={styles.mapsBtnText}>🗺️  Open in Google Maps</Text>
           </Pressable>
 
-          {/* Preview of the source post (IG thumbnail) — tap to open it */}
-          {!!place.sourceImage && !imgBroken && sources.length > 0 && (
-            <Pressable style={styles.sourcePreview} onPress={() => setViewSource(sources[0])}>
-              <Image
-                source={{ uri: place.sourceImage }}
-                style={styles.sourcePreviewImg}
-                resizeMode="cover"
-                onError={() => setImgBroken(true)}
-              />
-              <View style={styles.sourcePreviewLabel}>
-                <Text style={styles.sourcePreviewText}>📄 From this post — tap to open</Text>
-              </View>
-            </Pressable>
+          {/* Mentioned in — every post this place was saved from, as tappable
+              thumbnail cards (Yaay-style). Tap opens the post in-app. */}
+          {sources.length > 0 && (
+            <View style={styles.mentionBlock}>
+              <Text style={styles.fieldLabel}>Mentioned in</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.mentionRow}
+              >
+                {sources.map((u, i) => {
+                  const thumb =
+                    (place.sourceImages && place.sourceImages[u]) ||
+                    (i === 0 ? place.sourceImage : '');
+                  return (
+                    <Pressable key={u} style={styles.mentionCard} onPress={() => setViewSource(u)}>
+                      {thumb ? (
+                        <Image source={{ uri: thumb }} style={styles.mentionImg} resizeMode="cover" />
+                      ) : (
+                        <View style={styles.mentionPlaceholder}>
+                          <Text style={styles.mentionPlaceholderEmoji}>📄</Text>
+                        </View>
+                      )}
+                      <View style={styles.mentionLabel}>
+                        <Text style={styles.mentionLabelText} numberOfLines={1}>
+                          {u.includes('instagram.com') ? '📸 Instagram' : '🔗 Post'}
+                          {sources.length > 1 ? ` ${i + 1}` : ''}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
           )}
-
-          {sources.map((u, i) => (
-            <Pressable key={u} style={styles.linkBtn} onPress={() => setViewSource(u)}>
-              <Text style={styles.linkBtnText}>
-                📄  View source post{sources.length > 1 ? ` ${i + 1} of ${sources.length}` : ''}
-              </Text>
-            </Pressable>
-          ))}
-
-          {/* Backfill older places with newer AI fields (rating / category / notes) */}
-          <Pressable
-            style={[styles.linkBtn, refreshing && { opacity: 0.6 }]}
-            onPress={refreshDetails}
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <ActivityIndicator color={colors.accent} />
-            ) : (
-              <Text style={styles.linkBtnText}>🔄  Refresh details with AI</Text>
-            )}
-          </Pressable>
 
           {/* Mini-map: this place + your other saved places around it */}
           {hasCoords && (
@@ -369,23 +330,30 @@ const styles = StyleSheet.create({
   field: { gap: 2, marginTop: spacing.sm },
   fieldLabel: { fontSize: 13, color: colors.subtext, fontWeight: '500' },
   fieldValue: { fontSize: 16, color: colors.text, lineHeight: 22 },
-  sourcePreview: {
+  mentionBlock: { gap: spacing.sm },
+  mentionRow: { gap: spacing.md },
+  mentionCard: {
+    width: 140,
+    height: 180,
     borderRadius: radius.md,
     overflow: 'hidden',
+    backgroundColor: colors.card,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  sourcePreviewImg: { width: '100%', height: 200 },
-  sourcePreviewLabel: {
+  mentionImg: { width: '100%', height: '100%' },
+  mentionPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  mentionPlaceholderEmoji: { fontSize: 36 },
+  mentionLabel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
   },
-  sourcePreviewText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  mentionLabelText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   miniMapBlock: { gap: spacing.sm, marginTop: spacing.sm },
   miniMapWrap: {
     borderRadius: radius.md,

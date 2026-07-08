@@ -18,7 +18,8 @@ export interface Place {
   note: string;
   sourceUrl: string; // primary IG post / blog link (kept for backwards compat)
   sources: string[]; // ALL source links — re-saving the same place appends here
-  sourceImage: string; // preview image of the source post (IG thumbnail via Apify)
+  sourceImage: string; // preview image of the primary source (IG thumbnail via Apify)
+  sourceImages: Record<string, string>; // per-source thumbnails, keyed by source URL
   address: string; // for Google My Maps import (optional)
   lat: number | null;
   lng: number | null;
@@ -76,6 +77,7 @@ export function emptyPlace(): Omit<Place, 'id' | 'createdAt' | 'updatedAt'> {
     sourceUrl: '',
     sources: [],
     sourceImage: '',
+    sourceImages: {},
     address: '',
     lat: null,
     lng: null,

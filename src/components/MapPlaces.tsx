@@ -55,22 +55,48 @@ export function MapPlaces({ places, routePlaces, onSelect }: Props) {
     }
   };
 
-  // Group route stops by trip, ordered, to draw a line per route.
-  const routeLines = useMemo(() => {
+  // Group route stops by trip and draw ONE sensible path per route.
+  // Post numbering is usually list order, not walking order — connecting stops
+  // by it makes a scribble. So we re-order geographically: start from stop 1,
+  // then always hop to the nearest unvisited stop. Badges follow this path.
+  const { routeLines, routeSeq } = useMemo(() => {
     const byTrip = new Map<string, Place[]>();
     for (const p of routePinned) {
       if (!p.trip) continue;
       if (!byTrip.has(p.trip)) byTrip.set(p.trip, []);
       byTrip.get(p.trip)!.push(p);
     }
-    return Array.from(byTrip.entries())
-      .filter(([, ps]) => ps.length >= 2)
-      .map(([trip, ps]) => ({
-        trip,
-        coords: [...ps]
-          .sort((a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name))
-          .map((p) => ({ latitude: p.lat as number, longitude: p.lng as number })),
-      }));
+    const seq = new Map<string, number>(); // place id → display stop number
+    const lines: { trip: string; coords: { latitude: number; longitude: number }[] }[] = [];
+    for (const [trip, ps] of byTrip.entries()) {
+      const rest = [...ps].sort(
+        (a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name)
+      );
+      const path: Place[] = [rest.shift()!];
+      while (rest.length > 0) {
+        const last = path[path.length - 1];
+        let bestI = 0;
+        let bestD = Infinity;
+        rest.forEach((p, i) => {
+          const d =
+            ((p.lat as number) - (last.lat as number)) ** 2 +
+            ((p.lng as number) - (last.lng as number)) ** 2;
+          if (d < bestD) {
+            bestD = d;
+            bestI = i;
+          }
+        });
+        path.push(rest.splice(bestI, 1)[0]);
+      }
+      path.forEach((p, i) => seq.set(p.id, i + 1));
+      if (path.length >= 2) {
+        lines.push({
+          trip,
+          coords: path.map((p) => ({ latitude: p.lat as number, longitude: p.lng as number })),
+        });
+      }
+    }
+    return { routeLines: lines, routeSeq: seq };
   }, [routePinned]);
 
   // Geocode any place without coordinates (once each), in the background.
@@ -145,8 +171,8 @@ export function MapPlaces({ places, routePlaces, onSelect }: Props) {
               key={`r-${p.id}`}
               place={p}
               ringColor={colors.matcha}
-              stopNumber={p.order || undefined}
-              description={`🧭 ${p.trip}${p.order ? ` · stop ${p.order}` : ''}`}
+              stopNumber={routeSeq.get(p.id)}
+              description={`🧭 ${p.trip}${routeSeq.has(p.id) ? ` · stop ${routeSeq.get(p.id)}` : ''}`}
               onCalloutPress={() => onSelect(p)}
             />
           ))}

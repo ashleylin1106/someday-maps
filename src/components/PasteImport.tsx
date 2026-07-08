@@ -160,7 +160,7 @@ export function PasteImport() {
         if (dup) {
           skipped.push(r.name.trim());
           // Instead of a duplicate entry, attach this post as another source.
-          if (srcLink) addSource(dup.id, srcLink);
+          if (srcLink) addSource(dup.id, srcLink, srcImage || undefined);
           return;
         }
       }
@@ -181,6 +181,7 @@ export function PasteImport() {
         sourceUrl: srcLink,
         sources: srcLink ? [srcLink] : [],
         sourceImage: srcImage,
+        sourceImages: srcLink && srcImage ? { [srcLink]: srcImage } : {},
         lat: r.lat ?? null,
         lng: r.lng ?? null,
         rating: r.rating ?? null,
