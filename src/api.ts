@@ -21,6 +21,7 @@ export interface ImportImage {
 export interface ExtractResult {
   places: ParsedPlace[];
   sourceImage: string; // IG post thumbnail when the link was scraped via Apify
+  readOk: boolean; // the post's caption WAS read (so 0 places ≠ blocked)
 }
 
 // Text and/or screenshot extraction via the backend (Gemini + web search).
@@ -52,6 +53,7 @@ export async function extractPlacesFromText(
   const data = await res.json();
   const rawPlaces = Array.isArray(data?.places) ? data.places : [];
   const sourceImage = typeof data?.sourceImage === 'string' ? data.sourceImage : '';
+  const readOk = data?.readOk === true;
   const places = rawPlaces
     .filter((p: any) => p && typeof p.name === 'string' && p.name.trim())
     .map((p: any) => ({
@@ -71,7 +73,7 @@ export async function extractPlacesFromText(
       rating: typeof p.rating === 'number' ? p.rating : null,
       ratingCount: typeof p.ratingCount === 'number' ? Math.round(p.ratingCount) : null,
     }));
-  return { places, sourceImage };
+  return { places, sourceImage, readOk };
 }
 
 export async function extractPlacesFromImage(

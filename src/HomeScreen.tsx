@@ -730,7 +730,19 @@ export function HomeScreen() {
         </View>
       ) : (
         <>
-          <PasteImport />
+          <PasteImport
+            onAdded={(asRoute) => {
+              // Jump straight to the fresh places — no filter/drill-down hiding them.
+              setView(asRoute ? 'routes' : 'list');
+              setQuery('');
+              setSearchFocused(false);
+              setNavContinent(null);
+              setNavCountry(null);
+              setNavCity(null);
+              setStatusFilter('all');
+              setTypeSet(new Set());
+            }}
+          />
           <Pressable style={styles.fab} onPress={openAdd}>
             <Text style={styles.fabText}>＋</Text>
           </Pressable>

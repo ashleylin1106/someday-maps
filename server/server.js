@@ -327,6 +327,7 @@ app.post("/extract-text", async (req, res) => {
     // free), 3) tell Gemini to Google it.
     let metaExtra = "";
     let sourceImage = "";
+    let readOk = false; // did we actually get the post's caption?
     if (hasText) {
       const socialUrls = (
         text.match(
@@ -348,10 +349,14 @@ app.post("/extract-text", async (req, res) => {
         if (viaApify?.text) {
           metaExtra += `\n\nActual caption of ${u}:\n"""${viaApify.text}"""`;
           if (viaApify.image && !sourceImage) sourceImage = viaApify.image;
+          readOk = true;
           continue;
         }
         const meta = await fetchPageMeta(u);
-        if (meta?.text) metaExtra += `\n\nContent found at ${u}:\n"""${meta.text}"""`;
+        if (meta?.text) {
+          metaExtra += `\n\nContent found at ${u}:\n"""${meta.text}"""`;
+          readOk = true;
+        }
         if (meta?.image && !sourceImage) {
           const embedded = await toDataUri(meta.image);
           if (embedded) sourceImage = embedded;
@@ -434,7 +439,7 @@ app.post("/extract-text", async (req, res) => {
         };
       });
 
-    res.json({ places, sourceImage });
+    res.json({ places, sourceImage, readOk });
   } catch (err) {
     const raw = String(err?.message || err);
     console.error("extract-text error:", raw);

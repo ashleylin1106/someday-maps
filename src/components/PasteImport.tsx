@@ -23,7 +23,7 @@ import { colors, radius, spacing } from '../theme';
 type Step = 'paste' | 'review';
 type Mode = 'ai' | 'basic';
 
-export function PasteImport() {
+export function PasteImport({ onAdded }: { onAdded?: (asRoute: boolean) => void }) {
   const { addPlace, addSource, places } = useStore();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>('paste');
@@ -98,10 +98,12 @@ export function PasteImport() {
       setSrcImage(result.sourceImage);
       setBusy(false);
       if (found.length === 0 && hasLink && !hasText) {
-        // IG often blocks link reading — guide to the fallback instead of a dead end.
+        // Two very different failures — tell the user which one happened.
         Alert.alert(
-          "Couldn't read that link",
-          'Instagram often blocks reading posts by link. Paste the caption text below and Organize again.'
+          result.readOk ? 'No places in that post' : "Couldn't read that link",
+          result.readOk
+            ? "The post was read, but its caption doesn't name any places (reels often only say them in the video). Paste the names below, or add them manually with ＋."
+            : 'Instagram often blocks reading posts by link. Paste the caption text below and Organize again.'
         );
         return;
       }
@@ -200,6 +202,8 @@ export function PasteImport() {
     }
     Alert.alert(added > 0 ? 'Added' : 'Nothing new', parts.join('\n\n'));
     close();
+    // Let the home screen clear filters/navigation so the new places are visible.
+    if (added > 0) onAdded?.(asRoute);
   };
 
   return (
