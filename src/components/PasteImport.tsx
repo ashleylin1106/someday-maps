@@ -260,9 +260,9 @@ export function PasteImport() {
                 {/* 1 — link first (fastest) */}
                 <Text style={styles.sectionTitle}>🔗 Paste a link</Text>
                 <Text style={styles.hint}>
-                  IG post / reel / blog URL. The AI tries to read it, and the link is saved on every
-                  place as its source. (Instagram sometimes blocks this — then add a screenshot or
-                  the caption below.)
+                  IG post / reel, Xiaohongshu, or blog URL. The AI tries to read it, and the link
+                  is saved on every place as its source. (Some posts block reading — then paste the
+                  caption below.)
                 </Text>
                 <TextInput
                   style={styles.input}

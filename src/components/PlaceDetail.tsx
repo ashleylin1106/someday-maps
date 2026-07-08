@@ -99,6 +99,17 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
       : place.sourceUrl
         ? [place.sourceUrl]
         : [];
+  // Social posts get thumbnail cards; blogs/articles stay as plain links.
+  const isPost = (u: string) => /instagram\.com|xiaohongshu\.com|xhslink\.com|tiktok\.com/i.test(u);
+  const postSources = sources.filter(isPost);
+  const linkSources = sources.filter((u) => !isPost(u));
+  const postLabel = (u: string) =>
+    /instagram\.com/i.test(u)
+      ? '📸 Instagram'
+      : /xiaohongshu\.com|xhslink\.com/i.test(u)
+        ? '📕 Xiaohongshu'
+        : '🎵 TikTok';
+  const postEmoji = (u: string) => postLabel(u).split(' ')[0];
 
   const openMaps = () => Linking.openURL(mapsUrl(place)).catch(() => {});
 
@@ -164,33 +175,34 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
             <Text style={styles.mapsBtnText}>🗺️  Open in Google Maps</Text>
           </Pressable>
 
-          {/* Mentioned in — every post this place was saved from, as tappable
-              thumbnail cards (Yaay-style). Tap opens the post in-app. */}
-          {sources.length > 0 && (
-            <View style={styles.mentionBlock}>
-              <Text style={styles.fieldLabel}>Mentioned in</Text>
+          {/* Saved from — the posts this place came from. Social posts
+              (IG / Xiaohongshu / TikTok) get thumbnail cards; plain articles
+              and blogs are just tappable links. Everything opens in-app. */}
+          {postSources.length > 0 && (
+            <View style={styles.savedFromBlock}>
+              <Text style={styles.fieldLabel}>Saved from</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.mentionRow}
+                contentContainerStyle={styles.savedFromRow}
               >
-                {sources.map((u, i) => {
+                {postSources.map((u, i) => {
                   const thumb =
                     (place.sourceImages && place.sourceImages[u]) ||
-                    (i === 0 ? place.sourceImage : '');
+                    (u === sources[0] ? place.sourceImage : '');
                   return (
-                    <Pressable key={u} style={styles.mentionCard} onPress={() => setViewSource(u)}>
+                    <Pressable key={u} style={styles.postCard} onPress={() => setViewSource(u)}>
                       {thumb ? (
-                        <Image source={{ uri: thumb }} style={styles.mentionImg} resizeMode="cover" />
+                        <Image source={{ uri: thumb }} style={styles.postCardImg} resizeMode="cover" />
                       ) : (
-                        <View style={styles.mentionPlaceholder}>
-                          <Text style={styles.mentionPlaceholderEmoji}>📄</Text>
+                        <View style={styles.postCardPlaceholder}>
+                          <Text style={styles.postCardPlaceholderEmoji}>{postEmoji(u)}</Text>
                         </View>
                       )}
-                      <View style={styles.mentionLabel}>
-                        <Text style={styles.mentionLabelText} numberOfLines={1}>
-                          {u.includes('instagram.com') ? '📸 Instagram' : '🔗 Post'}
-                          {sources.length > 1 ? ` ${i + 1}` : ''}
+                      <View style={styles.postCardLabel}>
+                        <Text style={styles.postCardLabelText} numberOfLines={1}>
+                          {postLabel(u)}
+                          {postSources.length > 1 ? ` ${i + 1}` : ''}
                         </Text>
                       </View>
                     </Pressable>
@@ -199,6 +211,13 @@ export function PlaceDetail({ place: placeProp, visible, onClose, onEdit, onDele
               </ScrollView>
             </View>
           )}
+          {linkSources.map((u, i) => (
+            <Pressable key={u} style={styles.linkBtn} onPress={() => setViewSource(u)}>
+              <Text style={styles.linkBtnText}>
+                🔗  View source{linkSources.length > 1 ? ` ${i + 1} of ${linkSources.length}` : ''}
+              </Text>
+            </Pressable>
+          ))}
 
           {/* Mini-map: this place + your other saved places around it */}
           {hasCoords && (
@@ -330,9 +349,9 @@ const styles = StyleSheet.create({
   field: { gap: 2, marginTop: spacing.sm },
   fieldLabel: { fontSize: 13, color: colors.subtext, fontWeight: '500' },
   fieldValue: { fontSize: 16, color: colors.text, lineHeight: 22 },
-  mentionBlock: { gap: spacing.sm },
-  mentionRow: { gap: spacing.md },
-  mentionCard: {
+  savedFromBlock: { gap: spacing.sm },
+  savedFromRow: { gap: spacing.md },
+  postCard: {
     width: 140,
     height: 180,
     borderRadius: radius.md,
@@ -341,10 +360,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  mentionImg: { width: '100%', height: '100%' },
-  mentionPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mentionPlaceholderEmoji: { fontSize: 36 },
-  mentionLabel: {
+  postCardImg: { width: '100%', height: '100%' },
+  postCardPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  postCardPlaceholderEmoji: { fontSize: 36 },
+  postCardLabel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -353,7 +372,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
   },
-  mentionLabelText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  postCardLabelText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   miniMapBlock: { gap: spacing.sm, marginTop: spacing.sm },
   miniMapWrap: {
     borderRadius: radius.md,

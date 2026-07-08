@@ -276,8 +276,13 @@ async function fetchPageMeta(url) {
     const desc =
       grab(/<meta[^>]+property="og:description"[^>]+content="([^"]*)"/i) ||
       grab(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i);
+    // og:image gives us a free preview thumbnail (works on Xiaohongshu, blogs…)
+    const image =
+      grab(/<meta[^>]+property="og:image"[^>]+content="([^"]*)"/i) ||
+      grab(/<meta[^>]+name="og:image"[^>]+content="([^"]*)"/i);
     const text = [title, desc].filter(Boolean).join("\n");
-    return text.length > 20 ? text : null; // ignore useless stubs
+    if (text.length <= 20 && !image) return null; // useless stub
+    return { text: text.length > 20 ? text : null, image: image || null };
   } catch {
     return null;
   }
@@ -307,12 +312,17 @@ app.post("/extract-text", async (req, res) => {
       return res.status(400).json({ error: "Missing 'text' or 'images'" });
     }
 
-    // For social links (IG/TikTok): 1) Apify scraper (real caption + thumbnail,
-    // needs APIFY_TOKEN), 2) page meta tags, 3) tell Gemini to Google it.
+    // For social links (IG / TikTok / Xiaohongshu): 1) Apify scraper (IG only —
+    // real caption + thumbnail), 2) the page's og meta tags (text + og:image,
+    // free), 3) tell Gemini to Google it.
     let metaExtra = "";
     let sourceImage = "";
     if (hasText) {
-      const socialUrls = (text.match(/https?:\/\/(?:www\.)?(?:instagram\.com|tiktok\.com)\/\S+/gi) || []).slice(0, 2);
+      const socialUrls = (
+        text.match(
+          /https?:\/\/(?:www\.)?(?:instagram\.com|tiktok\.com|xiaohongshu\.com|xhslink\.com)\/\S+/gi
+        ) || []
+      ).slice(0, 2);
       for (const u of socialUrls) {
         const viaApify = u.includes("instagram.com") ? await fetchInstagramViaApify(u) : null;
         if (viaApify?.text) {
@@ -321,7 +331,11 @@ app.post("/extract-text", async (req, res) => {
           continue;
         }
         const meta = await fetchPageMeta(u);
-        if (meta) metaExtra += `\n\nContent found at ${u}:\n"""${meta}"""`;
+        if (meta?.text) metaExtra += `\n\nContent found at ${u}:\n"""${meta.text}"""`;
+        if (meta?.image && !sourceImage) {
+          const embedded = await toDataUri(meta.image);
+          if (embedded) sourceImage = embedded;
+        }
       }
       if (socialUrls.length > 0 && !metaExtra) {
         metaExtra =
