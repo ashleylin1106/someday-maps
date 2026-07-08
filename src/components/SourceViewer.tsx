@@ -14,9 +14,19 @@ interface Props {
   onClose: () => void;
 }
 
+// Instagram walls its normal post pages behind a login screen inside a WebView.
+// The public "embed" page renders the photo + caption WITHOUT logging in, so we
+// show that instead — you can actually see the post in-app.
+function viewableUrl(raw: string): string {
+  const m = raw.match(/instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)/i);
+  if (m) return `https://www.instagram.com/${m[1]}/${m[2]}/embed/captioned/`;
+  return raw;
+}
+
 export function SourceViewer({ url, visible, onClose }: Props) {
   if (!url) return null;
 
+  const shown = viewableUrl(url);
   const openExternal = () => Linking.openURL(url).catch(() => {});
 
   return (
@@ -34,7 +44,7 @@ export function SourceViewer({ url, visible, onClose }: Props) {
           </Pressable>
         </View>
         <WebView
-          source={{ uri: url }}
+          source={{ uri: shown }}
           style={styles.web}
           startInLoadingState
           renderLoading={() => (

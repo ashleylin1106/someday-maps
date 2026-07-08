@@ -218,7 +218,7 @@ async function fetchInstagramViaApify(url) {
   if (!APIFY_TOKEN) return null;
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 120000); // scrapes can take a while
+    const t = setTimeout(() => ctrl.abort(), 35000); // fail fast — don't leave the user waiting
     const r = await fetch(
       `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
       {
@@ -469,4 +469,16 @@ app.listen(PORT, () => {
   console.log(`   Text (Gemini): ${GEMINI_MODEL}  key=${process.env.GEMINI_API_KEY ? "set" : "MISSING"}`);
   console.log(`   Listening on http://0.0.0.0:${PORT}`);
   console.log(`   (your phone reaches it at http://<your-mac-ip>:${PORT})\n`);
+
+  // Keep-warm: Render's free tier sleeps after ~15 min idle, which adds a ~50s
+  // cold start to the next request. Ping our own public URL every 10 min so the
+  // service stays awake and imports feel fast. RENDER_EXTERNAL_URL is set by
+  // Render automatically; harmless (no-op) when running locally.
+  const selfUrl = process.env.RENDER_EXTERNAL_URL;
+  if (selfUrl) {
+    setInterval(() => {
+      fetch(`${selfUrl}/health`).catch(() => {});
+    }, 10 * 60 * 1000);
+    console.log(`   Keep-warm ping enabled → ${selfUrl}/health every 10 min`);
+  }
 });

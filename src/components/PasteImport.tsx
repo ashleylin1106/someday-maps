@@ -1,7 +1,7 @@
 // Free "paste text → organized places" flow. No AI, no backend, no cost.
 //   paste a blob → we detect places + country/city/type/address → you review → add.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Pressable,
@@ -32,10 +32,23 @@ export function PasteImport() {
   const [srcImage, setSrcImage] = useState(''); // IG thumbnail from the scraper
   const [rows, setRows] = useState<ParsedPlace[]>([]);
   const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(0); // seconds spent on the current lookup
   const [mode, setMode] = useState<Mode>('ai');
   // How to save this batch — you choose, not the AI.
   const [saveMode, setSaveMode] = useState<'spots' | 'route'>('spots');
   const [routeName, setRouteName] = useState('');
+
+  // Tick an elapsed-seconds counter while a lookup is running, so a 20–40s wait
+  // looks intentional instead of frozen.
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
 
   const reset = () => {
     setStep('paste');
@@ -231,7 +244,17 @@ export function PasteImport() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
               >
-                {busy && <Text style={styles.working}>🔎 Looking up places…</Text>}
+                {busy && (
+                  <View style={styles.workingBox}>
+                    <Text style={styles.working}>
+                      🔎 Looking up places…{elapsed > 0 ? `  ${elapsed}s` : ''}
+                    </Text>
+                    <Text style={styles.workingHint}>
+                      Reading the post and finding each place — this usually takes 15–40s. You can
+                      put your phone down.
+                    </Text>
+                  </View>
+                )}
 
                 {/* 1 — link first (fastest) */}
                 <Text style={styles.sectionTitle}>🔗 Paste a link</Text>
@@ -373,7 +396,15 @@ const styles = StyleSheet.create({
   body: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xl * 2 },
   hint: { fontSize: 13, color: colors.subtext, lineHeight: 19 },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: colors.text, marginTop: spacing.sm },
-  working: { fontSize: 14, color: colors.accent, fontWeight: '600' },
+  workingBox: {
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  working: { fontSize: 15, color: colors.accent, fontWeight: '700' },
+  workingHint: { fontSize: 13, color: colors.subtext, lineHeight: 18 },
   saveModeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
