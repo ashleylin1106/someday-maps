@@ -255,12 +255,31 @@ async function fetchInstagramViaApify(url) {
     const text = [caption, loc].filter(Boolean).join("\n");
     // Convert to a permanent embedded image (IG URLs expire); fall back to the raw URL.
     const image = imageUrl ? (await toDataUri(imageUrl)) || imageUrl : null;
-    const result = { text: text || null, image };
+    // Reels: keep the video URL — Gemini can watch/listen to it when the
+    // caption alone doesn't name the places (the "Yaay can read reels" trick).
+    const result = { text: text || null, image, videoUrl: it.videoUrl || null };
     apifyCache.set(url, { result, ts: Date.now() });
     if (apifyCache.size > 200) apifyCache.delete(apifyCache.keys().next().value);
     return result;
   } catch (e) {
     console.error("apify fetch failed:", e?.message || e);
+    return null;
+  }
+}
+
+// Download a reel's video so Gemini can watch/listen to it. Inline uploads
+// are capped around 20MB — larger reels are skipped (caption/search still run).
+async function fetchVideoBase64(url, maxBytes = 19 * 1024 * 1024) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 25000);
+    const r = await fetch(url, { headers: { "User-Agent": BROWSER_UA }, signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > maxBytes) return null;
+    return buf.toString("base64");
+  } catch {
     return null;
   }
 }
@@ -328,6 +347,7 @@ app.post("/extract-text", async (req, res) => {
     let metaExtra = "";
     let sourceImage = "";
     let readOk = false; // did we actually get the post's caption?
+    let videoB64 = null; // reel video for Gemini to watch/listen to
     if (hasText) {
       const socialUrls = (
         text.match(
@@ -346,10 +366,22 @@ app.post("/extract-text", async (req, res) => {
           u.includes("instagram.com") && !havePastedCaption
             ? await fetchInstagramViaApify(u)
             : null;
-        if (viaApify?.text) {
-          metaExtra += `\n\nActual caption of ${u}:\n"""${viaApify.text}"""`;
+        if (viaApify?.text || viaApify?.videoUrl) {
+          if (viaApify.text) {
+            metaExtra += `\n\nActual caption of ${u}:\n"""${viaApify.text}"""`;
+            readOk = true;
+          }
           if (viaApify.image && !sourceImage) sourceImage = viaApify.image;
-          readOk = true;
+          // Short caption + it's a reel → the places are probably said IN the
+          // video. Attach it so Gemini can watch/listen (like Yaay does).
+          if (viaApify.videoUrl && (!viaApify.text || viaApify.text.length < 400) && !videoB64) {
+            videoB64 = await fetchVideoBase64(viaApify.videoUrl);
+            if (videoB64) {
+              metaExtra +=
+                "\n\n(The reel's VIDEO is attached. Watch and listen to it — extract every place it names in speech, on-screen text, or captions.)";
+              readOk = true;
+            }
+          }
           continue;
         }
         const meta = await fetchPageMeta(u);
@@ -373,6 +405,7 @@ app.post("/extract-text", async (req, res) => {
       : `${TEXT_PROMPT}\n\nExtract the places from the attached screenshot(s).`;
     const parts = [
       ...imgs.map((im) => createPartFromBase64(im.data, im.mimeType || "image/jpeg")),
+      ...(videoB64 ? [createPartFromBase64(videoB64, "video/mp4")] : []),
       { text: promptText },
     ];
 
