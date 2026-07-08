@@ -193,6 +193,11 @@ function decodeEntities(s) {
 // to the meta/search fallbacks.
 const APIFY_TOKEN = process.env.APIFY_TOKEN || "";
 
+// Cache scrape results per URL for a while — re-importing the same post
+// (or a friend importing it too) is then instant and costs nothing.
+const apifyCache = new Map(); // url -> { result, ts }
+const APIFY_CACHE_MS = 6 * 60 * 60 * 1000;
+
 // IG image URLs expire after a few weeks. To keep the preview forever, we
 // download the image NOW, shrink it, and return it as an embedded data URI —
 // it then lives on the phone and never depends on Instagram again.
@@ -216,6 +221,8 @@ async function toDataUri(imageUrl) {
 
 async function fetchInstagramViaApify(url) {
   if (!APIFY_TOKEN) return null;
+  const hit = apifyCache.get(url);
+  if (hit && Date.now() - hit.ts < APIFY_CACHE_MS) return hit.result;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 35000); // fail fast — don't leave the user waiting
@@ -248,7 +255,10 @@ async function fetchInstagramViaApify(url) {
     const text = [caption, loc].filter(Boolean).join("\n");
     // Convert to a permanent embedded image (IG URLs expire); fall back to the raw URL.
     const image = imageUrl ? (await toDataUri(imageUrl)) || imageUrl : null;
-    return { text: text || null, image };
+    const result = { text: text || null, image };
+    apifyCache.set(url, { result, ts: Date.now() });
+    if (apifyCache.size > 200) apifyCache.delete(apifyCache.keys().next().value);
+    return result;
   } catch (e) {
     console.error("apify fetch failed:", e?.message || e);
     return null;
@@ -323,8 +333,18 @@ app.post("/extract-text", async (req, res) => {
           /https?:\/\/(?:www\.)?(?:instagram\.com|tiktok\.com|xiaohongshu\.com|xhslink\.com)\/\S+/gi
         ) || []
       ).slice(0, 2);
+      // If the user already pasted the caption, the content is right there —
+      // skip the slow scrape (it would only add the thumbnail).
+      const pastedContent = text
+        .replace(/https?:\/\/\S+/g, "")
+        .replace(/Read this link and extract the places it's about:/g, "")
+        .trim();
+      const havePastedCaption = pastedContent.length > 60;
       for (const u of socialUrls) {
-        const viaApify = u.includes("instagram.com") ? await fetchInstagramViaApify(u) : null;
+        const viaApify =
+          u.includes("instagram.com") && !havePastedCaption
+            ? await fetchInstagramViaApify(u)
+            : null;
         if (viaApify?.text) {
           metaExtra += `\n\nActual caption of ${u}:\n"""${viaApify.text}"""`;
           if (viaApify.image && !sourceImage) sourceImage = viaApify.image;
@@ -360,6 +380,9 @@ app.post("/extract-text", async (req, res) => {
           // web search grounding + read any pasted URL (blogs / itineraries)
           tools: [{ googleSearch: {} }, { urlContext: {} }],
           temperature: 0.2,
+          // Extraction doesn't need slow deliberation — turning "thinking" off
+          // shaves a good chunk of latency on 2.5-flash.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
 
