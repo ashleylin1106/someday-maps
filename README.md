@@ -7,7 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google_Gemini_API-4285F4?logo=google&logoColor=white)
 ![Platform](https://img.shields.io/badge/iOS_·_Android-lightgrey)
-![Offline](https://img.shields.io/badge/offline-no_account_needed-2ea44f)
+![Supabase](https://img.shields.io/badge/Supabase-auth_&_persistence-3ECF8E?logo=supabase&logoColor=white)
 
 ---
 
@@ -63,12 +63,15 @@ hands off.
 
 > 📌 Keeping the scope on the real friction made the product **smaller and more useful**.
 
-### Local-first, no account
+### Every place keeps its source
 
-Data lives on the device. No sign-up, works offline.
+Most import tools throw the original away. You paste an article, you get pins, and the article
+is gone — along with the reason any of it was worth saving.
 
-**Why it matters:** the moment you most need your saved places is often the moment you have the
-worst connectivity — standing on a street in a country where you have no data plan.
+So every place keeps a tap-through to the post it came from. **A pin tells you where. The
+source tells you why** — the review, the photo, the one dish someone said to order. That
+context is what you actually want back when you're standing outside the door six months later,
+and it costs nothing to keep.
 
 ---
 
@@ -108,7 +111,11 @@ not the one available.**
 | **Framework** | React Native (Expo) — native iOS + Android |
 | **Language** | TypeScript |
 | **AI** | Google Gemini API — parses unstructured post text into structured place records |
-| **Storage** | On-device — no backend accounts, works offline |
+| **Backend** | Supabase — accounts and data persistence, so a collection survives reinstalls |
+| **Maps** | react-native-maps, with hand-off into Google Maps |
+
+**Running it:** this is a prototype rather than a store release, so it runs through Expo Go —
+see [`SETUP.md`](SETUP.md).
 
 **Development approach:** built end-to-end using **AI-assisted development (Claude)**, from
 specification through iteration.
