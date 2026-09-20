@@ -32,6 +32,10 @@
     "owner": "someday-maps",
     "updates": {
       "url": "https://u.expo.dev/10d01830-0e17-4b39-a525-9249a6409ad6"
-    }
+    },
+    "plugins": [
+      "expo-sharing",
+      "expo-status-bar"
+    ]
   }
 }
