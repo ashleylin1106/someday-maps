@@ -13,7 +13,10 @@ import sharp from "sharp";
 
 const PORT = process.env.PORT || 8787;
 // Free-tier friendly default. Change with GEMINI_MODEL if this one isn't available to you.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+// Google Search grounding costs extra and has no free-tier quota — opt in with
+// GEMINI_GROUNDING=1 on a billed key to get live details like star ratings.
+const GROUNDING = /^(1|true|yes)$/i.test(process.env.GEMINI_GROUNDING || "");
 // Only used by the optional screenshot route.
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-8";
 
@@ -410,16 +413,20 @@ app.post("/extract-text", async (req, res) => {
     ];
 
     const gemini = getGemini();
-    const doCall = () =>
+    // urlContext (reading a pasted blog/article URL) is free. Google Search
+    // grounding is NOT included in the free tier — on a free key every request
+    // carrying it fails with 429 — so it is opt-in via GEMINI_GROUNDING=1.
+    // Without it the model still recognises most @handles from its own
+    // knowledge; live details like star ratings are what degrade.
+    const doCall = (withGrounding) =>
       gemini.models.generateContent({
         model: GEMINI_MODEL,
         contents: createUserContent(parts),
         config: {
-          // web search grounding + read any pasted URL (blogs / itineraries)
-          tools: [{ googleSearch: {} }, { urlContext: {} }],
+          tools: withGrounding ? [{ googleSearch: {} }, { urlContext: {} }] : [{ urlContext: {} }],
           temperature: 0.2,
           // Extraction doesn't need slow deliberation — turning "thinking" off
-          // shaves a good chunk of latency on 2.5-flash.
+          // shaves a good chunk of latency.
           thinkingConfig: { thinkingBudget: 0 },
         },
       });
@@ -427,17 +434,26 @@ app.post("/extract-text", async (req, res) => {
     // The free tier occasionally returns 503/429 (overloaded/rate-limited).
     // Retry a few times with backoff before giving up.
     let response;
+    let grounding = GROUNDING;
     for (let attempt = 0; ; attempt++) {
       try {
-        response = await doCall();
+        response = await doCall(grounding);
         break;
       } catch (e) {
         const msg = String(e?.message || e);
         // A depleted billing balance also reports RESOURCE_EXHAUSTED, but no
         // amount of retrying fixes it — fail immediately instead of stalling.
-        const billing = /402|prepayment|credits are depleted/i.test(msg);
+        const billing = /\b402\b|prepayment|credits are depleted/i.test(msg);
+        const quota = /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(msg);
+        // Grounding has no free-tier quota: drop it and try once more rather
+        // than failing the whole import.
+        if (grounding && quota && !billing) {
+          console.warn("grounding unavailable on this key — retrying without it");
+          grounding = false;
+          continue;
+        }
         const transient =
-          !billing && /503|429|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED/i.test(msg);
+          !billing && /\b503\b|\b429\b|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED/i.test(msg);
         if (!transient || attempt >= 3) throw e;
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
@@ -483,11 +499,13 @@ app.post("/extract-text", async (req, res) => {
     let message = "Extraction failed";
     if (/503|UNAVAILABLE|overloaded|high demand/i.test(raw)) {
       message = "Google's AI is busy right now — try again in a moment.";
-    } else if (/402|prepayment|credits are depleted|billing/i.test(raw)) {
+    } else if (/\b402\b|prepayment|credits are depleted/i.test(raw)) {
       // Billing problem, NOT a daily limit — waiting will never fix this one.
       message =
         "The Gemini billing account is out of credits, so the free tier no longer applies. Top up credits, or use an API key from a project without billing.";
-    } else if (/429|RESOURCE_EXHAUSTED|quota/i.test(raw)) {
+    } else if (/no longer available to new users/i.test(raw)) {
+      message = `The model "${GEMINI_MODEL}" isn't available on this API key. Set GEMINI_MODEL to a current one (e.g. gemini-3.6-flash).`;
+    } else if (/\b429\b|RESOURCE_EXHAUSTED|quota/i.test(raw)) {
       message = "Hit today's free Gemini limit. Try again later (it resets daily).";
     } else if (/API key|API_KEY|invalid|permission/i.test(raw)) {
       message = "Gemini API key problem — check GEMINI_API_KEY in server/.env.";
