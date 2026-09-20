@@ -433,7 +433,11 @@ app.post("/extract-text", async (req, res) => {
         break;
       } catch (e) {
         const msg = String(e?.message || e);
-        const transient = /503|429|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED/i.test(msg);
+        // A depleted billing balance also reports RESOURCE_EXHAUSTED, but no
+        // amount of retrying fixes it — fail immediately instead of stalling.
+        const billing = /402|prepayment|credits are depleted/i.test(msg);
+        const transient =
+          !billing && /503|429|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED/i.test(msg);
         if (!transient || attempt >= 3) throw e;
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
@@ -479,6 +483,10 @@ app.post("/extract-text", async (req, res) => {
     let message = "Extraction failed";
     if (/503|UNAVAILABLE|overloaded|high demand/i.test(raw)) {
       message = "Google's AI is busy right now — try again in a moment.";
+    } else if (/402|prepayment|credits are depleted|billing/i.test(raw)) {
+      // Billing problem, NOT a daily limit — waiting will never fix this one.
+      message =
+        "The Gemini billing account is out of credits, so the free tier no longer applies. Top up credits, or use an API key from a project without billing.";
     } else if (/429|RESOURCE_EXHAUSTED|quota/i.test(raw)) {
       message = "Hit today's free Gemini limit. Try again later (it resets daily).";
     } else if (/API key|API_KEY|invalid|permission/i.test(raw)) {
