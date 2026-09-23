@@ -11,6 +11,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI, createPartFromBase64, createUserContent } from "@google/genai";
 import sharp from "sharp";
 
+// The free instance only has 512MB: sharp's pixel cache and its per-call thread
+// pool are what push it over when a carousel's slides are resized back to back.
+sharp.cache(false);
+sharp.concurrency(1);
+
 const PORT = process.env.PORT || 8787;
 // Free-tier friendly default. Change with GEMINI_MODEL if this one isn't available to you.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
@@ -215,7 +220,10 @@ async function downloadImage(imageUrl, width) {
     clearTimeout(t);
     if (!r.ok) return null;
     const buf = Buffer.from(await r.arrayBuffer());
-    const small = await sharp(buf).resize({ width }).jpeg({ quality: 70 }).toBuffer();
+    const small = await sharp(buf, { limitInputPixels: 50e6 })
+      .resize({ width })
+      .jpeg({ quality: 70 })
+      .toBuffer();
     return small.toString("base64");
   } catch {
     return null;
@@ -230,11 +238,20 @@ async function toDataUri(imageUrl) {
 // Carousel "food guide" posts keep the place names on the slides, not in the
 // caption. Fetch the slides at a readable size so Gemini can read that text.
 const MAX_SLIDES = 20;
+// A few at a time: downloading one by one is painfully slow, but decoding 20
+// images at once exhausts the 512MB free instance and the process is killed.
+const SLIDE_CONCURRENCY = 3;
 async function fetchSlides(urls) {
-  // In parallel: a 20-slide guide downloaded one at a time is painfully slow.
   const picked = urls.slice(0, MAX_SLIDES);
-  const settled = await Promise.all(picked.map((u) => downloadImage(u, 1000)));
-  return settled.filter(Boolean);
+  const started = Date.now();
+  const out = [];
+  for (let i = 0; i < picked.length; i += SLIDE_CONCURRENCY) {
+    const batch = picked.slice(i, i + SLIDE_CONCURRENCY);
+    const settled = await Promise.all(batch.map((u) => downloadImage(u, 900)));
+    out.push(...settled.filter(Boolean));
+  }
+  console.log(`slides: fetched ${out.length}/${picked.length} in ${Date.now() - started}ms`);
+  return out;
 }
 
 async function fetchInstagramViaApify(url) {
