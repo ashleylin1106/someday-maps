@@ -255,8 +255,8 @@ export function PasteImport({ onAdded }: { onAdded?: (asRoute: boolean) => void 
                       🔎 Looking up places…{elapsed > 0 ? `  ${elapsed}s` : ''}
                     </Text>
                     <Text style={styles.workingHint}>
-                      Reading the post and finding each place — this usually takes 15–40s. You can
-                      put your phone down.
+                      Reading the post and finding each place. Pasted text takes a few seconds;
+                      a photo guide or reel takes up to a minute while every slide is read.
                     </Text>
                   </View>
                 )}
