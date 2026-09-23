@@ -204,7 +204,7 @@ const APIFY_CACHE_MS = 6 * 60 * 60 * 1000;
 // IG image URLs expire after a few weeks. To keep the preview forever, we
 // download the image NOW, shrink it, and return it as an embedded data URI —
 // it then lives on the phone and never depends on Instagram again.
-async function toDataUri(imageUrl) {
+async function downloadImage(imageUrl, width) {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 15000);
@@ -215,11 +215,26 @@ async function toDataUri(imageUrl) {
     clearTimeout(t);
     if (!r.ok) return null;
     const buf = Buffer.from(await r.arrayBuffer());
-    const small = await sharp(buf).resize({ width: 480 }).jpeg({ quality: 60 }).toBuffer();
-    return `data:image/jpeg;base64,${small.toString("base64")}`;
+    const small = await sharp(buf).resize({ width }).jpeg({ quality: 70 }).toBuffer();
+    return small.toString("base64");
   } catch {
     return null;
   }
+}
+
+async function toDataUri(imageUrl) {
+  const b64 = await downloadImage(imageUrl, 480);
+  return b64 ? `data:image/jpeg;base64,${b64}` : null;
+}
+
+// Carousel "food guide" posts keep the place names on the slides, not in the
+// caption. Fetch the slides at a readable size so Gemini can read that text.
+const MAX_SLIDES = 20;
+async function fetchSlides(urls) {
+  // In parallel: a 20-slide guide downloaded one at a time is painfully slow.
+  const picked = urls.slice(0, MAX_SLIDES);
+  const settled = await Promise.all(picked.map((u) => downloadImage(u, 1000)));
+  return settled.filter(Boolean);
 }
 
 async function fetchInstagramViaApify(url) {
@@ -258,9 +273,19 @@ async function fetchInstagramViaApify(url) {
     const text = [caption, loc].filter(Boolean).join("\n");
     // Convert to a permanent embedded image (IG URLs expire); fall back to the raw URL.
     const image = imageUrl ? (await toDataUri(imageUrl)) || imageUrl : null;
+    // Every slide of a carousel, so the places written on them can be read.
+    const slideUrls = [
+      ...(Array.isArray(it.childPosts) ? it.childPosts.map((c) => c?.displayUrl) : []),
+      ...(Array.isArray(it.images) ? it.images : []),
+    ].filter((u) => typeof u === "string" && u);
     // Reels: keep the video URL — Gemini can watch/listen to it when the
     // caption alone doesn't name the places (the "Yaay can read reels" trick).
-    const result = { text: text || null, image, videoUrl: it.videoUrl || null };
+    const result = {
+      text: text || null,
+      image,
+      videoUrl: it.videoUrl || null,
+      slideUrls: [...new Set(slideUrls)],
+    };
     apifyCache.set(url, { result, ts: Date.now() });
     if (apifyCache.size > 200) apifyCache.delete(apifyCache.keys().next().value);
     return result;
@@ -351,6 +376,7 @@ app.post("/extract-text", async (req, res) => {
     let sourceImage = "";
     let readOk = false; // did we actually get the post's caption?
     let videoB64 = null; // reel video for Gemini to watch/listen to
+    let slideB64 = []; // carousel slides for Gemini to read place names off
     if (hasText) {
       const socialUrls = (
         text.match(
@@ -369,19 +395,28 @@ app.post("/extract-text", async (req, res) => {
           u.includes("instagram.com") && !havePastedCaption
             ? await fetchInstagramViaApify(u)
             : null;
-        if (viaApify?.text || viaApify?.videoUrl) {
+        if (viaApify?.text || viaApify?.videoUrl || viaApify?.slideUrls?.length) {
           if (viaApify.text) {
             metaExtra += `\n\nActual caption of ${u}:\n"""${viaApify.text}"""`;
             readOk = true;
           }
           if (viaApify.image && !sourceImage) sourceImage = viaApify.image;
-          // Short caption + it's a reel → the places are probably said IN the
-          // video. Attach it so Gemini can watch/listen (like Yaay does).
-          if (viaApify.videoUrl && (!viaApify.text || viaApify.text.length < 400) && !videoB64) {
+          // A short caption means the places live in the post itself: spoken in
+          // the reel, or written on the carousel slides. Attach whichever we
+          // have so Gemini can read them (this is the trick Yaay uses).
+          const thin = !viaApify.text || viaApify.text.length < 400;
+          if (viaApify.videoUrl && thin && !videoB64) {
             videoB64 = await fetchVideoBase64(viaApify.videoUrl);
             if (videoB64) {
               metaExtra +=
                 "\n\n(The reel's VIDEO is attached. Watch and listen to it — extract every place it names in speech, on-screen text, or captions.)";
+              readOk = true;
+            }
+          }
+          if (!videoB64 && thin && viaApify.slideUrls?.length && slideB64.length === 0) {
+            slideB64 = await fetchSlides(viaApify.slideUrls);
+            if (slideB64.length > 0) {
+              metaExtra += `\n\n(The post's ${slideB64.length} SLIDE IMAGES are attached. Read the text written on them — carousel guides put each place's name on its own slide. Extract every place shown.)`;
               readOk = true;
             }
           }
@@ -409,6 +444,7 @@ app.post("/extract-text", async (req, res) => {
     const parts = [
       ...imgs.map((im) => createPartFromBase64(im.data, im.mimeType || "image/jpeg")),
       ...(videoB64 ? [createPartFromBase64(videoB64, "video/mp4")] : []),
+      ...slideB64.map((b) => createPartFromBase64(b, "image/jpeg")),
       { text: promptText },
     ];
 
